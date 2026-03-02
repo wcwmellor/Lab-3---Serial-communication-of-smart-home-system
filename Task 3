@@ -1,0 +1,140 @@
+//=====[Libraries]=============================================================
+
+#include "mbed.h"
+#include "arm_book_lib.h"
+
+//=====[Declaration and initialization of public global objects]===============
+
+DigitalOut gasAlarmLed(LED1);
+DigitalOut tempAlarmLed(LED3);
+UnbufferedSerial uartUsb(USBTX, USBRX, 115200);
+
+//=====[Declaration and initialization of public global variables]=============
+
+bool gasAlarmActive = false;
+bool tempAlarmActive = false;
+bool continuousMonitoring = false;
+int continuousTimer = 0;
+
+//=====[Declarations (prototypes) of public functions]=========================
+
+void outputsInit();
+void uartTask();
+void continuousMonitoringTask();
+void availableCommands();
+
+//=====[Main function, the program entry point after power on or reset]========
+
+int main()
+{
+    outputsInit();
+    
+    while (true) {
+        uartTask();
+        continuousMonitoringTask();
+        
+        // Update physical LEDs based on virtual alarm states
+        if ( gasAlarmActive ) {
+            gasAlarmLed = ON;
+        } else {
+            gasAlarmLed = OFF;
+        }
+
+        if ( tempAlarmActive ) {
+            tempAlarmLed = ON;
+        } else {
+            tempAlarmLed = OFF;
+        }
+
+        ThisThread::sleep_for(50ms);
+    }
+}
+
+//=====[Implementations of public functions]===================================
+
+void outputsInit()
+{
+    gasAlarmLed = OFF;
+    tempAlarmLed = OFF;
+}
+
+void uartTask()
+{
+    char receivedChar = '\0';
+    if( uartUsb.readable() ) {
+        uartUsb.read( &receivedChar, 1 );
+
+        if ( receivedChar == '1') {
+            gasAlarmActive = !gasAlarmActive;
+            if ( gasAlarmActive ) {
+                uartUsb.write( "WARNING: GAS DETECTED\r\n", 23 );
+            }
+        } else if ( receivedChar == '2') {
+            if ( gasAlarmActive ) {
+                uartUsb.write( "GAS ALARM ACTIVE\r\n", 18 );
+            } else {
+                uartUsb.write( "GAS ALARM CLEAR\r\n", 17 );
+            }
+        } else if ( receivedChar == '3') {
+            if ( tempAlarmActive ) {
+                uartUsb.write( "TEMP ALARM ACTIVE\r\n", 19 );
+            } else {
+                uartUsb.write( "TEMP ALARM CLEAR\r\n", 18 );
+            }
+        } else if ( receivedChar == '4') {
+            tempAlarmActive = !tempAlarmActive;
+            if ( tempAlarmActive ) {
+                uartUsb.write( "WARNING: TEMPERATURE TOO HIGH\r\n", 31 );
+            }
+        } else if ( receivedChar == '5') {
+            gasAlarmActive = false;
+            tempAlarmActive = false;
+            uartUsb.write( "ALARMS RESET\r\n", 14 );
+        } else if ( receivedChar == '6') {
+            continuousMonitoring = !continuousMonitoring;
+            continuousTimer = 0; 
+            if ( continuousMonitoring ) {
+                uartUsb.write( "Continuous Monitoring ON\r\n", 26 );
+            } else {
+                uartUsb.write( "Continuous Monitoring OFF\r\n", 27 );
+            }
+        } else {
+            availableCommands();
+        }
+    }
+}
+
+void continuousMonitoringTask()
+{
+    if ( continuousMonitoring ) {
+        continuousTimer++;
+        
+        // 40 loops * 50ms delay in main = 2000ms (2 seconds)
+        if ( continuousTimer >= 40 ) { 
+            if ( gasAlarmActive ) {
+                uartUsb.write( "GAS ALARM ACTIVE\r\n", 18 );
+            } else {
+                uartUsb.write( "GAS ALARM CLEAR\r\n", 17 );
+            }
+
+            if ( tempAlarmActive ) {
+                uartUsb.write( "TEMP ALARM ACTIVE\r\n", 19 );
+            } else {
+                uartUsb.write( "TEMP ALARM CLEAR\r\n", 18 );
+            }
+            
+            continuousTimer = 0;
+        }
+    }
+}
+
+void availableCommands()
+{
+    uartUsb.write( "Available commands:\r\n", 21 );
+    uartUsb.write( "1: Toggle Gas Alarm\r\n", 21 );
+    uartUsb.write( "2: Get Gas State\r\n", 18 );
+    uartUsb.write( "3: Get Temp State\r\n", 19 );
+    uartUsb.write( "4: Toggle Temp Alarm\r\n", 22 );
+    uartUsb.write( "5: Reset Alarms\r\n", 17 );
+    uartUsb.write( "6: Toggle Monitoring\r\n\r\n", 24 );
+}
