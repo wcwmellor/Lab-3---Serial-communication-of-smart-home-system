@@ -1,29 +1,19 @@
-//=====[Libraries]=============================================================
-
 #include "mbed.h"
 #include "arm_book_lib.h"
 
-//=====[Declaration and initialization of public global objects]===============
-
-DigitalOut gasAlarmLed(LED1);
-DigitalOut tempAlarmLed(LED3);
+DigitalOut gasalarm(LED1);
+DigitalOut tempalarm(LED3);
 UnbufferedSerial uartUsb(USBTX, USBRX, 115200);
 
-//=====[Declaration and initialization of public global variables]=============
-
-bool gasAlarmActive = false;
-bool tempAlarmActive = false;
-bool continuousMonitoring = false;
+bool gasalarmON = false;
+bool tempalarmOn = false;
+bool monitoring = false;
 int continuousTimer = 0;
-
-//=====[Declarations (prototypes) of public functions]=========================
 
 void outputsInit();
 void uartTask();
 void continuousMonitoringTask();
 void availableCommands();
-
-//=====[Main function, the program entry point after power on or reset]========
 
 int main()
 {
@@ -33,29 +23,27 @@ int main()
         uartTask();
         continuousMonitoringTask();
         
-        // Update physical LEDs based on virtual alarm states
-        if ( gasAlarmActive ) {
-            gasAlarmLed = ON;
+        
+        if ( gasalarmON ) {
+            gasalarm = ON;
         } else {
-            gasAlarmLed = OFF;
+            gasalarm = OFF;
         }
 
-        if ( tempAlarmActive ) {
-            tempAlarmLed = ON;
+        if ( tempalarmOn ) {
+            tempalarm = ON;
         } else {
-            tempAlarmLed = OFF;
+            tempalarm = OFF;
         }
 
         ThisThread::sleep_for(50ms);
     }
 }
 
-//=====[Implementations of public functions]===================================
-
 void outputsInit()
 {
-    gasAlarmLed = OFF;
-    tempAlarmLed = OFF;
+    gasalarm = OFF;
+    tempalarm = OFF;
 }
 
 void uartTask()
@@ -63,37 +51,38 @@ void uartTask()
     char receivedChar = '\0';
     if( uartUsb.readable() ) {
         uartUsb.read( &receivedChar, 1 );
+        uartUsb.write( "\r\n", 2 );
 
         if ( receivedChar == '1') {
-            gasAlarmActive = !gasAlarmActive;
-            if ( gasAlarmActive ) {
+            gasalarmON = !gasalarmON;
+            if ( gasalarmON ) {
                 uartUsb.write( "WARNING: GAS DETECTED\r\n", 23 );
             }
         } else if ( receivedChar == '2') {
-            if ( gasAlarmActive ) {
+            if ( gasalarmON ) {
                 uartUsb.write( "GAS ALARM ACTIVE\r\n", 18 );
             } else {
                 uartUsb.write( "GAS ALARM CLEAR\r\n", 17 );
             }
-        } else if ( receivedChar == '3') {
-            if ( tempAlarmActive ) {
+        } else if ( receivedChar == '4') {
+            if ( tempalarmOn ) {
                 uartUsb.write( "TEMP ALARM ACTIVE\r\n", 19 );
             } else {
                 uartUsb.write( "TEMP ALARM CLEAR\r\n", 18 );
             }
-        } else if ( receivedChar == '4') {
-            tempAlarmActive = !tempAlarmActive;
-            if ( tempAlarmActive ) {
+        } else if ( receivedChar == '3') {
+            tempalarmOn = !tempalarmOn;
+            if ( tempalarmOn ) {
                 uartUsb.write( "WARNING: TEMPERATURE TOO HIGH\r\n", 31 );
             }
         } else if ( receivedChar == '5') {
-            gasAlarmActive = false;
-            tempAlarmActive = false;
+            gasalarmON = false;
+            tempalarmOn = false;
             uartUsb.write( "ALARMS RESET\r\n", 14 );
         } else if ( receivedChar == '6') {
-            continuousMonitoring = !continuousMonitoring;
+            monitoring = !monitoring;
             continuousTimer = 0; 
-            if ( continuousMonitoring ) {
+            if ( monitoring ) {
                 uartUsb.write( "Continuous Monitoring ON\r\n", 26 );
             } else {
                 uartUsb.write( "Continuous Monitoring OFF\r\n", 27 );
@@ -106,18 +95,17 @@ void uartTask()
 
 void continuousMonitoringTask()
 {
-    if ( continuousMonitoring ) {
+    if ( monitoring ) {
         continuousTimer++;
         
-        // 40 loops * 50ms delay in main = 2000ms (2 seconds)
         if ( continuousTimer >= 40 ) { 
-            if ( gasAlarmActive ) {
+            if ( gasalarmON ) {
                 uartUsb.write( "GAS ALARM ACTIVE\r\n", 18 );
             } else {
                 uartUsb.write( "GAS ALARM CLEAR\r\n", 17 );
             }
 
-            if ( tempAlarmActive ) {
+            if ( tempalarmOn ) {
                 uartUsb.write( "TEMP ALARM ACTIVE\r\n", 19 );
             } else {
                 uartUsb.write( "TEMP ALARM CLEAR\r\n", 18 );
