@@ -1,49 +1,109 @@
+//=====[Libraries]=============================================================
+
 #include "mbed.h"
 #include "arm_book_lib.h"
 
-DigitalOut gasalarm(LED1);
-DigitalOut tempalarm(LED3);
+//=====[Declaration and initialization of public global objects]===============
+
+DigitalIn enterButton(BUTTON1);
+DigitalIn gasDetector(D2);
+DigitalIn overTempDetector(D3);
+DigitalIn aButton(D4);
+DigitalIn bButton(D5);
+DigitalIn cButton(D6);
+DigitalIn dButton(D7);
+
+DigitalOut alarmLed(LED1);
+DigitalOut incorrectCodeLed(LED3); // This controls LED 3
+DigitalOut systemBlockedLed(LED2);
+
 UnbufferedSerial uartUsb(USBTX, USBRX, 115200);
 
-bool gasalarmON = false;
-bool tempalarmOn = false;
-bool monitoring = false;
-int continuousTimer = 0;
+//=====[Declaration and initialization of public global variables]=============
 
+bool alarmState = OFF;
+int numberOfIncorrectCodes = 0;
+
+// New variables for Task 3 requirements
+bool simGasAlarm = false;
+bool simTempAlarm = false;
+bool continuousMonitoring = false;
+int monitorCounter = 0;
+
+//=====[Declarations (prototypes) of public functions]=========================
+
+void inputsInit();
 void outputsInit();
+
+void alarmActivationUpdate();
+void alarmDeactivationUpdate();
+
 void uartTask();
-void continuousMonitoringTask();
 void availableCommands();
+void monitoringTaskUpdate(); 
+
+//=====[Main function, the program entry point after power on or reset]========
 
 int main()
 {
+    inputsInit();
     outputsInit();
-    
     while (true) {
+        alarmActivationUpdate();
+        alarmDeactivationUpdate();
         uartTask();
-        continuousMonitoringTask();
-        
-        
-        if ( gasalarmON ) {
-            gasalarm = ON;
-        } else {
-            gasalarm = OFF;
-        }
-
-        if ( tempalarmOn ) {
-            tempalarm = ON;
-        } else {
-            tempalarm = OFF;
-        }
-
-        ThisThread::sleep_for(50ms);
+        monitoringTaskUpdate();
+        ThisThread::sleep_for(10ms); 
     }
+}
+
+//=====[Implementations of public functions]===================================
+
+void inputsInit()
+{
+    gasDetector.mode(PullDown);
+    overTempDetector.mode(PullDown);
+    aButton.mode(PullDown);
+    bButton.mode(PullDown);
+    cButton.mode(PullDown);
+    dButton.mode(PullDown);
 }
 
 void outputsInit()
 {
-    gasalarm = OFF;
-    tempalarm = OFF;
+    alarmLed = OFF;
+    incorrectCodeLed = OFF;
+    systemBlockedLed = OFF;
+}
+
+void alarmActivationUpdate()
+{
+    if ( gasDetector || overTempDetector || simGasAlarm || simTempAlarm ) {
+        alarmState = ON;
+    }
+    alarmLed = alarmState;
+}
+
+void alarmDeactivationUpdate()
+{
+    if ( numberOfIncorrectCodes < 5 ) {
+        if ( aButton && bButton && cButton && dButton && !enterButton ) {
+            incorrectCodeLed = OFF;
+        }
+        if ( enterButton && !incorrectCodeLed && alarmState ) {
+            if ( aButton && bButton && !cButton && !dButton ) {
+                alarmState = OFF;
+                simGasAlarm = false;  
+                simTempAlarm = false;
+                numberOfIncorrectCodes = 0;
+            } else {
+                incorrectCodeLed = ON;
+                numberOfIncorrectCodes = numberOfIncorrectCodes + 1;
+            }
+        }
+    } else {
+        systemBlockedLed = ON;
+    }
 }
 
 void uartTask()
@@ -51,67 +111,56 @@ void uartTask()
     char receivedChar = '\0';
     if( uartUsb.readable() ) {
         uartUsb.read( &receivedChar, 1 );
-        uartUsb.write( "\r\n", 2 );
-
-        if ( receivedChar == '1') {
-            gasalarmON = !gasalarmON;
-            if ( gasalarmON ) {
-                uartUsb.write( "WARNING: GAS DETECTED\r\n", 23 );
-            }
-        } else if ( receivedChar == '2') {
-            if ( gasalarmON ) {
-                uartUsb.write( "GAS ALARM ACTIVE\r\n", 18 );
-            } else {
-                uartUsb.write( "GAS ALARM CLEAR\r\n", 17 );
-            }
-        } else if ( receivedChar == '4') {
-            if ( tempalarmOn ) {
-                uartUsb.write( "TEMP ALARM ACTIVE\r\n", 19 );
-            } else {
-                uartUsb.write( "TEMP ALARM CLEAR\r\n", 18 );
-            }
-        } else if ( receivedChar == '3') {
-            tempalarmOn = !tempalarmOn;
-            if ( tempalarmOn ) {
-                uartUsb.write( "WARNING: TEMPERATURE TOO HIGH\r\n", 31 );
-            }
-        } else if ( receivedChar == '5') {
-            gasalarmON = false;
-            tempalarmOn = false;
-            uartUsb.write( "ALARMS RESET\r\n", 14 );
-        } else if ( receivedChar == '6') {
-            monitoring = !monitoring;
-            continuousTimer = 0; 
-            if ( monitoring ) {
-                uartUsb.write( "Continuous Monitoring ON\r\n", 26 );
-            } else {
-                uartUsb.write( "Continuous Monitoring OFF\r\n", 27 );
-            }
-        } else {
-            availableCommands();
-        }
-    }
-}
-
-void continuousMonitoringTask()
-{
-    if ( monitoring ) {
-        continuousTimer++;
         
-        if ( continuousTimer >= 40 ) { 
-            if ( gasalarmON ) {
-                uartUsb.write( "GAS ALARM ACTIVE\r\n", 18 );
-            } else {
-                uartUsb.write( "GAS ALARM CLEAR\r\n", 17 );
-            }
-
-            if ( tempalarmOn ) {
-                uartUsb.write( "TEMP ALARM ACTIVE\r\n", 19 );
-            } else {
-                uartUsb.write( "TEMP ALARM CLEAR\r\n", 18 );
-            }
-            
-            continuousTimer = 0;
+        switch (receivedChar) {
+            case '1':
+                simGasAlarm = !simGasAlarm;
+                if (simGasAlarm) {
+                    uartUsb.write( " WARNING: GAS DETECTED\r\n", 24 );
+                }
+                break;
+            case '2':
+                if (simGasAlarm) {
+                    uartUsb.write( "GAS ALARM ACTIVE\r\n", 18 );
+                } else {
+                    uartUsb.write( "GAS ALARM CLEAR\r\n", 17 );
+                }
+                break;
+            case '3':
+                if (simTempAlarm) {
+                    uartUsb.write( "TEMP ALARM ACTIVE\r\n", 19 );
+                } else {
+                    uartUsb.write( "TEMP ALARM CLEAR\r\n", 18 );
+                }
+                break;
+            case '4':
+                simTempAlarm = !simTempAlarm;
+                if (simTempAlarm) {
+                    uartUsb.write( " WARNING: TEMPERATURE TOO HIGH\r\n", 32 );
+                    incorrectCodeLed = ON;  // Turn LED 3 ON
+                } else {
+                    incorrectCodeLed = OFF; // Turn LED 3 OFF if toggled off via 4
+                }
+                break;
+            case '5':
+                simGasAlarm = false;
+                simTempAlarm = false;
+                alarmState = OFF; 
+                incorrectCodeLed = OFF; // Turn LED 3 OFF when reset via 5
+                uartUsb.write( "ALARMS RESET\r\n", 14 );
+                break;
+            case '6':
+                continuousMonitoring = !continuousMonitoring;
+                if (continuousMonitoring) {
+                    uartUsb.write( "MONITORING ON\r\n", 15 );
+                    monitorCounter = 0; 
+                } else {
+                    uartUsb.write( "MONITORING OFF\r\n", 16 );
+                }
+                break;
+            default:
+                availableCommands();
+                break;
         }
     }
 }
@@ -125,4 +174,28 @@ void availableCommands()
     uartUsb.write( "4: Toggle Temp Alarm\r\n", 22 );
     uartUsb.write( "5: Reset Alarms\r\n", 17 );
     uartUsb.write( "6: Toggle Monitoring\r\n\r\n", 24 );
+}
+
+void monitoringTaskUpdate()
+{
+    if (continuousMonitoring) {
+        monitorCounter++;
+        if (monitorCounter >= 200) {
+            monitorCounter = 0;
+            
+            if (simGasAlarm) {
+                uartUsb.write( "GAS ALARM ACTIVE\r\n", 18 );
+            } else {
+                uartUsb.write( "GAS ALARM CLEAR\r\n", 17 );
+            }
+            
+            if (simTempAlarm) {
+                uartUsb.write( "TEMP ALARM ACTIVE\r\n", 19 );
+            } else {
+                uartUsb.write( "TEMP ALARM CLEAR\r\n", 18 );
+            }
+        }
+    } else {
+        monitorCounter = 0;
+    }
 }
